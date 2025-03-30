@@ -1,80 +1,138 @@
-"use client";
+// "use client";
 
-import { SettingsProvider } from "@/lib/settings-provider";
-import { LastOcrImage } from "@/components/ready-to-use-examples/last-ocr-image";
-import { HealthStatus } from "@/components/ready-to-use-examples/health-status";
-import { LastUiRecord } from "@/components/ready-to-use-examples/last-ui-record";
-import { PlaygroundCard } from "@/components/playground-card";
-import { ClientOnly } from "@/lib/client-only";
-import { Inter } from "next/font/google";
-import componentsList from '../content/components-list.json';
-import { useEffect, useState } from "react";
 
-const inter = Inter({ 
-  subsets: ['latin'],
-  display: 'swap',
-  variable: '--font-inter',
-});
+// import { Inter } from "next/font/google";
 
-interface Pipe {
-  id: string;
-  name: string;
-  description: string;
+// import { useEffect, useState } from "react";
+
+// const inter = Inter({ 
+//   subsets: ['latin'],
+//   display: 'swap',
+//   variable: '--font-inter',
+// });
+
+
+// // entry page
+// export default function Page() {
+//   useEffect(() => {
+    
+//   }, []);
+
+//   return (
+//     <div>
+
+
+//     </div>
+
+//   );
+// }
+// components/ActivityMonitor.tsx
+'use client';
+
+
+import { useEffect, useState } from 'react';
+import { toast } from 'sonner';
+
+interface OCREvent {
+  type: string;
+  data: {
+    appName: string;
+    text: string;
+    timestamp: string;
+    suggestions: string[];
+    errors?: Array<{ error: string; solution: string }>;
+  };
 }
 
-export default function Page() {
-  const [pipes, setPipes] = useState<Pipe[]>([]);
-  const [loading, setLoading] = useState(true);
+export default function ActivityMonitor() {
+  const [events, setEvents] = useState<OCREvent['data'][]>([]);
+  const [isConnected, setIsConnected] = useState(false);
 
   useEffect(() => {
-    fetch("https://screenpi.pe/api/plugins/registry")
-      .then((res) => res.json())
-      .then((data) => {
-        const transformedPipes = data.map((pipe: any) => ({
-          id: pipe.id,
-          name: pipe.name,
-          description: pipe.description?.split('\n')[0] || ''
-        }));
-        setPipes(transformedPipes);
-        setLoading(false);
-      })
-      .catch((error) => {
-        console.error("Error fetching pipes:", error);
-        setLoading(false);
-      });
+    // Connect to WebSocket
+    
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    
+    const ws = new WebSocket(`${protocol}//${window.location.host}/api/ocr`);
+
+    ws.onopen = () => {
+      setIsConnected(true);
+      toast.success('Screen monitoring active');
+    };
+
+    const controller = new AbortController();
+
+    ws.addEventListener(
+      'message',
+      async (event) => {
+        console.log('Incoming event:', event);        
+      },
+      controller,
+    );
+
+    ws.onmessage = (event) => {
+      const data: OCREvent = JSON.parse(event.data);
+      setEvents(prev => [data.data, ...prev].slice(0, 50)); // Keep last 50 events
+
+      // Show notifications for important events
+      if (data.data.errors?.length) {
+        data.data.errors.forEach(err => {
+          toast.error(`Error detected: ${err.error}`, {
+            action: {
+              label: 'Fix',
+              onClick: () => applyFix(err.solution)
+            }
+          });
+        });
+      }
+    };
+
+    ws.onclose = () => {
+      setIsConnected(false);
+      toast.warning('Screen monitoring disconnected');
+    };
+
+    return () => ws.close();
   }, []);
 
+  const applyFix = (solution: string) => {
+    // Implement fix application logic
+    console.log('Applying fix:', solution);
+  };
+
   return (
-    <SettingsProvider>
-      <ClientOnly>
-        <div className={`flex flex-col gap-6 items-center justify-center h-full mt-12 px-4 pb-12 ${inter.className}`}>
-          <h1 className="text-2xl font-bold mb-0">example app (pipe) for developers</h1>
-          <p className="text-gray-600 mb-2 -mt-5">ready-to-use components for engineers building apps with screenpipe</p>
-          {componentsList.map((cardContent, index) => (
-            <PlaygroundCard key={index} content={cardContent} />
-          ))}
-          
-          <div className="w-full max-w-4xl mt-8 font-mono">
-            <h2 className="text-xl font-semibold mb-4 text-left">open source pipes</h2>
-            <p className="mb-6 text-left text-gray-600">
-              # All pipes are open source and you can directly fork or reuse pipes or components.
-              # Source: <a href="https://github.com/mediar-ai/screenpipe/tree/main/pipes" className="text-blue-500 underline">https://github.com/mediar-ai/screenpipe/tree/main/pipes</a>
-            </p>
+    <div className="fixed bottom-4 right-4 w-96 bg-background border rounded-lg shadow-lg z-50">
+      <div className="p-4 border-b">
+        <h3 className="font-bold">Screen Activity Monitor</h3>
+        <div className="text-sm text-muted-foreground">
+          Status: {isConnected ? 'Connected' : 'Disconnected'}
+        </div>
+      </div>
+      
+      <div className="max-h-96 overflow-y-auto">
+        {events.map((event, i) => (
+          <div key={i} className="p-4 border-b">
+            <div className="flex justify-between text-sm">
+              <span className="font-medium">{event.appName}</span>
+              <span className="text-muted-foreground">
+                {new Date(event.timestamp).toLocaleTimeString()}
+              </span>
+            </div>
+            <p className="text-sm mt-1 line-clamp-2">{event.text}</p>
             
-            {loading ? (
-              <p className="text-gray-500">Loading available pipes...</p>
-            ) : (
-              <div className="bg-gray-100 p-4 rounded w-full max-w-4xl text-sm border border-gray-200">
-                {pipes.map((pipe, index) => (
-                  <div key={index} className="mb-2 last:mb-0">
-                    <span className="font-medium">[{index}]</span> <span className="font-semibold">{pipe.name}</span> - {pipe.description}
-                  </div>
-                ))}
+            {event.suggestions?.length > 0 && (
+              <div className="mt-2">
+                <h4 className="text-xs font-semibold text-muted-foreground">Suggestions</h4>
+                <ul className="text-sm space-y-1 mt-1">
+                  {event.suggestions.map((suggestion, j) => (
+                    <li key={j}>• {suggestion}</li>
+                  ))}
+                </ul>
               </div>
             )}
           </div>
-        </div>
-      </ClientOnly>
-    </SettingsProvider>
+        ))}
+      </div>
+    </div>
   );
 }
